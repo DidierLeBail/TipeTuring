@@ -1,0 +1,136 @@
+import numpy as np
+import numpy.random as rd
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
+from matplotlib.ticker import LinearLocator, FormatStrFormatter
+import matplotlib.pyplot as plt
+
+class milieuReactionnel():
+	
+	cInitialeReactifsArray = [] #c initiales [A,B,D,E,F,H,S,T]
+	diffusions = [] #diffusions des reactifs
+	dx = 0 #pas suivant x
+	dy = 0 #pas suivant y
+	Nx = 0 #dimension en x du milieu
+	Ny = 0 #dimension en y du milieu
+	Nz = 0 #nombre de reactifs
+	m = [] #liste de tableaux contenant la concentration d'un reactif suivant x et y 
+	kVitesses = [] #contient des constantes de vitesse [k1a,k1b,k2,k3a,k3b,k4,k5]
+
+	def __init__(this,_cInitialeReactifsArray,_diffusions,_dx,_dy,_nx,_ny,_kVitesses,_alpha):
+		this.ci = list(_cInitialeReactifsArray)
+		this.kVitesses = _kVitesses
+		this.diffusions = list(_diffusions)
+		this.alpha = _alpha
+		this.dx = _dx
+		this.dy = _dy
+		this.Nx = int(_nx/_dx)
+		this.Ny = int(_ny/_dy)
+		this.Nz = len(_cInitialeReactifsArray)
+		#Remplissage du milieu
+		for ci in _cInitialeReactifsArray:
+			newArray = np.zeros((this.Nx,this.Ny))
+			for x in range(this.Nx):
+				newArray[x,this.Ny-1]=ci #ligne du bas
+				newArray[x,0]=ci 		#ligne du haut
+			for y in range(this.Ny):
+				newArray[this.Nx-1,y]=ci #colonne de droite
+				newArray[0,y]=ci 		#colonne de gauche
+			this.m.append(newArray)
+	
+	#def __str__(this):
+		#output = ""
+		#i=0;j=0
+		#for x in this.m:
+			#for y in x:
+				#output+="("+str(i)+","+str(j)+")"
+				#j+=1
+				#output+=str(y)+"\n"
+			#i+=1
+			#j=0
+		#output+="\nDiffusions:"+str(this.diffusions)+"\n"
+		#output+="Constantes de vitesse:"+str(this.kVitesses)
+		#return output
+
+			
+	def progConcentrationtdt(this,dt,lap):
+		
+		k1a,k1b,k2,k3a,k3b,k4,k5 = tuple(this.kVitesses)
+		da,db,dd,de,df,dh,ds,du = tuple(this.diffusions)
+
+		for x in range(this.Nx):
+			for y in range(this.Ny):
+				r1=(k1a*this.m[0][x,y]*this.m[1][x,y])/(k1b+this.m[1][x,y]) ; r3=k3a*this.m[4][x,y]*this.m[2][x,y]*this.m[5][x,y] + (k3b*this.m[4][x,y]*this.m[1][x,y]*this.m[2][x,y])/(this.alpha+this.m[2][x,y]**2)
+				r2=k2*this.m[2][x,y]*this.m[3][x,y] ; r4=k4*this.m[6][x,y]*this.m[1][x,y]*this.m[2][x,y]-k5*this.m[5][x,y]
+				this.m[0][x,y]+=dt*(-r1+da*lap[x,y][0])
+				this.m[1][x,y]+=dt*(-r1+0.5*r2+2*r3-r4+db*lap[x,y][1])
+				this.m[2][x,y]+=dt*(r1+r2-4*r3-r4+dd*lap[x,y][2])
+				this.m[3][x,y]+=dt*(-r2+de*lap[x,y][3])
+				this.m[4][x,y]+=dt*(r2-r3+df*lap[x,y][4])
+				this.m[5][x,y]+=dt*(r1-4*r3+dh*lap[x,y][5])
+				this.m[6][x,y]+=-dt*(r4+ds*lap[x,y][6])
+				this.m[7][x,y]+=dt*(r4+du*lap[x,y][7])
+				for i in range(8):
+					this.m[i][x,y] = (lambda x: x if x > 0 else 0)(this.m[i][x,y])
+
+			
+		for i in range(this.Nz):
+			lap[0,this.Ny-1,i]=                         (this.ci[i]+this.m[i][1,this.Ny-1]-2*this.m[i][0,this.Ny-1])/((this.dx)**2) + (this.ci[i]-2*this.m[i][0,this.Ny-1]+this.m[i][0,this.Ny-2])/((this.dy)**2)
+			lap[this.Nx-1,0,i]=                         (this.ci[i]-2*this.m[i][this.Nx-1,0]+this.m[i][this.Nx-2,0])/((this.dx)**2) + (this.ci[i]+this.m[i][this.Nx-1,1]-2*this.m[i][this.Nx-1,0])/((this.dy)**2)
+			lap[this.Nx-1,this.Ny-1,i]= (this.ci[i]-2*this.m[i][this.Nx-1,this.Ny-1]+this.m[i][this.Nx-2,this.Ny-1])/((this.dx)**2) + (this.ci[i]-2*this.m[i][this.Nx-1,this.Ny-1]+this.m[i][this.Nx-1,this.Ny-2])/((this.dy)**2)
+			lap[0,0,i]=                                                 (this.ci[i]+this.m[i][1,0]-2*this.m[i][0,0])/((this.dx)**2) + (this.ci[i]+this.m[i][0,1]-2*this.m[i][0,0])/((this.dy)**2)
+			
+			for x in range(1,this.Nx-1):
+				lap[x,this.Ny-1,i]= (this.ci[i]-2*this.m[i][x,this.Ny-1]+this.m[i][x,this.Ny-2])/((this.dy)**2) + (this.m[i][x+1,this.Ny-1]-2*this.m[i][x,this.Ny-1]+this.m[i][x-1,this.Ny-1])/((this.dx)**2)
+				lap[x,0,i]=                         (this.ci[i]+this.m[i][x,1]-2*this.m[i][x,0])/((this.dy)**2) + (this.m[i][x+1,0]-2*this.m[i][x,0]+this.m[i][x-1,0])/((this.dx)**2)
+				
+				for y in range(1,this.Ny-1):
+					lap[x,y,i]= (this.m[i][x+1,y]-2*this.m[i][x,y]+this.m[i][x-1,y])/((this.dx)**2) + (this.m[i][x,y+1]-2*this.m[i][x,y]+this.m[i][x,y-1])/((this.dy)**2)
+			
+			for y in range(1,this.Ny-1):
+				lap[this.Nx-1,y,i]= (this.ci[i]-2*this.m[i][this.Nx-1,y]+this.m[i][this.Nx-2,y])/((this.dx)**2) + (this.m[i][this.Nx-1,y+1]-2*this.m[i][this.Nx-1,y]+this.m[i][this.Nx-1,y-1])/((this.dy)**2)
+				lap[0,y,i]=                         (this.ci[i]+this.m[i][1,y]-2*this.m[i][0,y])/((this.dx)**2) + (this.m[i][0,y+1]-2*this.m[i][0,y]+this.m[i][0,y-1])/((this.dy)**2)
+			
+		return lap
+
+	def initLaplacien(this):
+		lap=np.zeros((this.Nx,this.Ny,this.Nz))
+		for i in range(this.Nz):
+			z= this.ci[i]/((this.dx)**2) + this.ci[i]/((this.dy)**2)
+			(lap[this.Nx-1,this.Ny-1][i],lap[this.Nx-1,0][i],lap[0,this.Ny-1][i],lap[0,0][i])= (z,z,z,z)
+			
+			for y in range(1,this.Ny-1):
+				z= this.ci[i]/((this.dx)**2)
+				lap[this.Nx-1,y][i]= z
+				lap[0,y][i]= z
+			
+			for x in range(1,this.Nx-1):
+				z= this.ci[i]/((this.dy)**2)
+				lap[x,this.Ny-1][i]= z
+				lap[x,0][i]= z
+			
+		return lap
+
+	def grapheEnFonctiondeT(this,dt,duree,x0,y0):
+		Nt=int(duree/dt) ; instants=np.linspace(0,duree,Nt)
+		X0=[this.m[2][x0,y0]]
+		lap=this.initLaplacien()
+		for i in range(1,Nt):
+			lap=this.progConcentrationtdt(dt,lap)
+			#print("###############################")
+			#print(str(i)+"sur"+str(Nt))
+			#	print(lap)
+			#print("###############################")
+			#print(this.m[2])
+			X0.append(this.m[2][x0,y0])
+		#print(this)
+		fig=plt.figure()
+		plt.grid(True)
+		plt.plot(instants,X0)
+		#plt.savefig()
+		plt.show()
+
+## Begin script
+#milieu = milieuReactionnel(cInitialeReactifsArray,[da,db,dd,de,df,dh,ds,du],_dx,_dy,_nx,_ny,[k1a,k1b,k2,k3a,k3b,k4,k5],_alpha)
+milieu = milieuReactionnel([21*10**(-3),2.2*10**(-3),2.2*10**(-3),22*10**(-3),22*10**(-3),20*10**(-3),4.5*10**(-3),0.0],[10**(-6),10**(-6),7*10**(-10),7*10**(-6),7.5*10**(-6),7*10**(-6),7*10**(-6),7*10**(-6)],0.1,0.1,0.5,0.5,[6.2*10**(-4),5*10**(-5),10**(-6),9.2*10**(-5),9.2*10**(-5),1.0*10**(-3),10**(-4)],5*10**(3))
+milieu.grapheEnFonctiondeT(0.1,100,2,2)
